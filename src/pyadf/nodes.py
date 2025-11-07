@@ -7,6 +7,12 @@ from typing import Optional
 from uuid import uuid4
 
 from ._logger import get_logger
+from .exceptions import (
+    InvalidFieldError,
+    MissingFieldError,
+    NodeCreationError,
+    UnsupportedNodeTypeError,
+)
 
 logger = get_logger()
 
@@ -40,14 +46,28 @@ class NodeType(enum.Enum):
 
     @classmethod
     def from_string(cls, s: str) -> "NodeType":
-        """Convert string to NodeType with O(1) cached lookup."""
+        """Convert string to NodeType with O(1) cached lookup.
+
+        Args:
+            s: String representation of the node type
+
+        Returns:
+            NodeType enum member
+
+        Raises:
+            InvalidFieldError: If the string doesn't match any known node type
+        """
         # Use a closure-based cache to avoid enum member conflicts
         if not hasattr(cls, "_cache"):
             cls._cache = {e.value[1]: e for e in cls}
 
         node_type = cls._cache.get(s)
         if node_type is None:
-            raise ValueError(f"enum '{cls.__name__}' doesn't have value with string '{s}'")
+            raise InvalidFieldError(
+                field_name="type",
+                invalid_value=s,
+                expected_values=cls.supported_values(),
+            )
         return node_type
 
     @classmethod
@@ -56,31 +76,39 @@ class NodeType(enum.Enum):
         return [e.value[1] for e in cls]
 
 
-class UnsupportedNodeTypeError(Exception):
-    """Raised when an unsupported node type is encountered."""
-
-    pass
-
-
-class InvalidNodeError(Exception):
-    """Raised when node data is invalid or malformed."""
-
-    pass
-
-
 class Node:
     """Base class for all ADF nodes."""
 
-    def __init__(self, node_dict: dict) -> None:
+    def __init__(self, node_dict: dict, node_path: str = "") -> None:
+        """
+        Initialize a node from dictionary.
+
+        Args:
+            node_dict: Dictionary containing node data
+            node_path: Path to this node in the ADF tree (for error reporting)
+
+        Raises:
+            MissingFieldError: If required 'type' field is missing
+            InvalidFieldError: If 'type' field has an invalid value
+        """
         if "type" not in node_dict:
-            raise InvalidNodeError("node must contain 'type' attribute")
+            raise MissingFieldError(
+                field_name="type",
+                node_path=node_path or "<root>",
+                expected_values=NodeType.supported_values(),
+            )
 
         self._type_str: str = node_dict["type"]
+        self._node_path: str = node_path
 
         try:
             n_type = NodeType.from_string(self._type_str)
-        except ValueError:
+        except InvalidFieldError as e:
+            # Re-raise with node path context
+            e.node_path = node_path or "<root>"
             n_type = NodeType.UNKNOWN
+            # For unknown types in base Node, we'll log but continue
+            logger.debug(f"Unknown node type '{self._type_str}' at {node_path}")
 
         self._type: NodeType = n_type
         self._attrs: dict = node_dict.get("attrs", {})
@@ -89,10 +117,19 @@ class Node:
         )
 
         self._child_nodes: list["Node"] = []
-        for child_node in self._content:
-            child = create_node_from_dict(child_node)
-            if child is not None:
-                self._child_nodes.append(child)
+        for idx, child_node in enumerate(self._content):
+            child_path = f"{node_path} > {self._type_str}[{idx}]" if node_path else self._type_str
+            try:
+                child = create_node_from_dict(child_node, child_path)
+                if child is not None:
+                    self._child_nodes.append(child)
+            except (MissingFieldError, InvalidFieldError, UnsupportedNodeTypeError):
+                # Re-raise validation errors with proper context
+                raise
+            except Exception as e:
+                # Wrap unexpected errors
+                logger.error(f"Error creating child node at {child_path}: {e}")
+                raise
 
     @property
     def type(self) -> NodeType:
@@ -120,11 +157,11 @@ class ParagraphNode(Node):
 class TextNode(Node):
     """Represents a text node with optional formatting marks."""
 
-    def __init__(self, node_dict: dict) -> None:
-        super().__init__(node_dict)
+    def __init__(self, node_dict: dict, node_path: str = "") -> None:
+        super().__init__(node_dict, node_path)
 
         if "text" not in node_dict:
-            logger.warning("Text field does not exist in TextNode")
+            logger.warning(f"Text field does not exist in TextNode at {node_path or '<root>'}")
             self._text = ""
         else:
             self._text: str = node_dict["text"]
@@ -175,15 +212,15 @@ class HardBreakNode(Node):
 class ListNode(Node):
     """Base class for list nodes (bullet, ordered, task lists)."""
 
-    def __init__(self, node_dict: dict) -> None:
-        super().__init__(node_dict)
+    def __init__(self, node_dict: dict, node_path: str = "") -> None:
+        super().__init__(node_dict, node_path)
 
         self._elements: list[Node] = []
         for child_node in self._child_nodes:
             # Ensure we have only list items as children
             if child_node.type not in (NodeType.LIST_ITEM, NodeType.TASK_ITEM):
                 logger.warning(
-                    f"Expected LIST_ITEM or TASK_ITEM under list node, "
+                    f"Expected LIST_ITEM or TASK_ITEM under list node at {node_path or '<root>'}, "
                     f"but got '{child_node.type}'"
                 )
                 continue
@@ -377,48 +414,71 @@ _KNOWN_UNSUPPORTED_TYPES = {
 }
 
 
-def create_node_from_dict(node_dict: dict) -> Optional[Node]:
+def create_node_from_dict(node_dict: dict, node_path: str = "") -> Optional[Node]:
     """
     Create a node from a dictionary using registry pattern.
 
     Args:
         node_dict: Dictionary containing node data
+        node_path: Path to this node in the ADF tree (for error reporting)
 
     Returns:
-        Node instance or None if node cannot be created
+        Node instance
 
     Raises:
         UnsupportedNodeTypeError: If node type is not supported
-        InvalidNodeError: If node data is invalid
+        MissingFieldError: If required fields are missing
+        NodeCreationError: If node creation fails
     """
     if "type" not in node_dict:
-        return None
+        raise MissingFieldError(
+            field_name="type",
+            node_path=node_path or "<root>",
+            expected_values=NodeType.supported_values(),
+        )
 
     node_type_str = node_dict["type"]
+    current_path = f"{node_path} > {node_type_str}" if node_path else node_type_str
 
     # Handle known unsupported types gracefully
     if node_type_str in _KNOWN_UNSUPPORTED_TYPES:
-        logger.debug(f"Skipping known unsupported node type: {node_type_str}")
-        return Node(node_dict)
+        logger.debug(f"Skipping known unsupported node type: {node_type_str} at {current_path}")
+        return Node(node_dict, node_path)
 
     try:
         node_type = NodeType.from_string(node_type_str)
-    except ValueError as e:
-        # Log debug info if needed
-        logger.error(f"Unknown node type: {node_type_str}")
-        raise UnsupportedNodeTypeError(f"Unsupported node type: {node_type_str}") from e
+    except InvalidFieldError as e:
+        # Re-raise with proper node path and supported types
+        logger.error(f"Unknown node type: {node_type_str} at {current_path}")
+        raise UnsupportedNodeTypeError(
+            node_type=node_type_str,
+            node_path=current_path,
+            supported_types=NodeType.supported_values(),
+        ) from e
 
     # Get the appropriate node class from registry
     node_class = _NODE_REGISTRY.get(node_type)
 
     if node_class is None:
-        logger.error(f"No handler registered for node type: {node_type}")
-        raise UnsupportedNodeTypeError(f"No handler for node type: {node_type}")
+        logger.error(f"No handler registered for node type: {node_type} at {current_path}")
+        raise UnsupportedNodeTypeError(
+            node_type=node_type_str,
+            node_path=current_path,
+            supported_types=list(_NODE_REGISTRY.keys()),
+        )
 
     try:
-        return node_class(node_dict)
-    except Exception as e:
-        logger.error(f"Error creating node of type {node_type}: {e}")
+        return node_class(node_dict, node_path)
+    except (MissingFieldError, InvalidFieldError, UnsupportedNodeTypeError):
+        # These are already properly formatted, just re-raise
         raise
+    except Exception as e:
+        logger.error(f"Error creating node of type {node_type} at {current_path}: {e}")
+        raise NodeCreationError(
+            node_type=node_type_str,
+            reason=str(e),
+            node_path=current_path,
+            original_error=e,
+        ) from e
 
 

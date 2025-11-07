@@ -4,6 +4,7 @@ import json
 from typing import Optional, Union
 
 from . import markdown, nodes
+from .exceptions import InvalidInputError, InvalidJSONError
 
 
 class Document:
@@ -32,9 +33,12 @@ class Document:
                  Can be any ADF node type including "doc".
 
         Raises:
-            ValueError: If adf is a string but not valid JSON, or if type is not supported
-            nodes.UnsupportedNodeTypeError: If ADF contains unsupported node types
-            nodes.InvalidNodeError: If ADF data is malformed
+            InvalidJSONError: If adf is a string but not valid JSON
+            InvalidInputError: If adf has invalid type
+            UnsupportedNodeTypeError: If ADF contains unsupported node types
+            MissingFieldError: If required fields are missing
+            InvalidFieldError: If fields have invalid values
+            NodeCreationError: If node creation fails
         """
         self._root_node: Optional[nodes.Node] = None
 
@@ -47,11 +51,18 @@ class Document:
             try:
                 adf_dict = json.loads(adf)
             except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON string: {e}") from e
+                # Extract position from error message if available
+                position = None
+                if hasattr(e, "pos"):
+                    position = e.pos
+                raise InvalidJSONError(json_error=str(e), position=position) from e
         elif isinstance(adf, dict):
             adf_dict = adf
         else:
-            raise ValueError(f"Expected str, dict, or None, got {type(adf)}")
+            raise InvalidInputError(
+                expected_type="str, dict, or None",
+                actual_type=type(adf).__name__,
+            )
 
         # Create node from the dict
         self._root_node = nodes.create_node_from_dict(adf_dict)

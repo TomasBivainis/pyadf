@@ -34,12 +34,15 @@ def gen_md_from_root_node(root_node: Node) -> str:
 
     Returns:
         Markdown string representation
+
+    Raises:
+        ValueError: If presenter creation or rendering fails
     """
-    try:
-        root_node_presenter = create_node_presenter_from_node(
-            root_node, RenderContext(is_first=True)
-        )
-    except Exception:
+    root_node_presenter = create_node_presenter_from_node(
+        root_node, RenderContext(is_first=True)
+    )
+
+    if root_node_presenter is None:
         return ""
 
     return str(root_node_presenter)
