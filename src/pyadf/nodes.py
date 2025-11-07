@@ -406,7 +406,6 @@ def create_node_from_dict(node_dict: dict) -> Optional[Node]:
     except ValueError as e:
         # Log debug info if needed
         logger.error(f"Unknown node type: {node_type_str}")
-        _write_debug_file(node_dict, node_type_str)
         raise UnsupportedNodeTypeError(f"Unsupported node type: {node_type_str}") from e
 
     # Get the appropriate node class from registry
@@ -420,41 +419,6 @@ def create_node_from_dict(node_dict: dict) -> Optional[Node]:
         return node_class(node_dict)
     except Exception as e:
         logger.error(f"Error creating node of type {node_type}: {e}")
-        _write_debug_file(node_dict, node_type_str)
         raise
 
 
-def create_nodes_from_list(node_dict_list: list[dict]) -> list[Node]:
-    """
-    Create a list of nodes from a list of dictionaries.
-
-    Args:
-        node_dict_list: List of dictionaries containing node data
-
-    Returns:
-        List of created nodes (None values filtered out)
-    """
-    nodes = []
-    for node_dict in node_dict_list:
-        try:
-            node = create_node_from_dict(node_dict)
-            if node is not None:
-                nodes.append(node)
-        except UnsupportedNodeTypeError:
-            # Skip unsupported nodes
-            continue
-
-    return nodes
-
-
-def _write_debug_file(node_dict: dict, node_type: str) -> None:
-    """Write debug file for problematic nodes."""
-    try:
-        debug_dir = Path("/tmp")
-        if debug_dir.exists():
-            filename = debug_dir / f"pyadf_debug_{node_type}_{uuid4()}.json"
-            with open(filename, "w") as f:
-                json.dump(node_dict, f, indent=4)
-            logger.debug(f"Debug file written: {filename}")
-    except Exception as e:
-        logger.debug(f"Could not write debug file: {e}")

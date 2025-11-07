@@ -1,7 +1,7 @@
 """Basic tests for pyadf functionality."""
 
 import pytest
-from pyadf import adf2md
+from pyadf import Document
 
 
 class TestSimpleConversions:
@@ -18,7 +18,7 @@ class TestSimpleConversions:
                 }
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "Hello, world!"
 
     def test_bold_text(self):
@@ -30,7 +30,7 @@ class TestSimpleConversions:
                 {"type": "text", "text": "world!", "marks": [{"type": "strong"}]},
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "Hello, **world!**"
 
     def test_italic_text(self):
@@ -42,7 +42,7 @@ class TestSimpleConversions:
                 {"type": "text", "text": "world!", "marks": [{"type": "em"}]},
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "Hello, *world!*"
 
     def test_bold_italic_text(self):
@@ -57,7 +57,7 @@ class TestSimpleConversions:
                 }
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "***Hello!***"
 
 
@@ -71,7 +71,7 @@ class TestHeadings:
             "attrs": {"level": 1},
             "content": [{"type": "text", "text": "My Heading"}],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "# My Heading"
 
     def test_heading_level_2(self):
@@ -81,7 +81,7 @@ class TestHeadings:
             "attrs": {"level": 2},
             "content": [{"type": "text", "text": "My Heading"}],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "## My Heading"
 
     def test_heading_level_6(self):
@@ -91,7 +91,7 @@ class TestHeadings:
             "attrs": {"level": 6},
             "content": [{"type": "text", "text": "My Heading"}],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "###### My Heading"
 
 
@@ -117,7 +117,7 @@ class TestLists:
                 },
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "+ Item 1\n+ Item 2"
 
     def test_ordered_list(self):
@@ -139,7 +139,7 @@ class TestLists:
                 },
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "1. First\n2. Second"
 
     def test_task_list(self):
@@ -155,7 +155,7 @@ class TestLists:
                 }
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "- [ ] Task 1"
 
 
@@ -169,7 +169,7 @@ class TestCodeBlocks:
             "attrs": {"language": "python"},
             "content": [{"type": "text", "text": "print('hello')"}],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "```python\nprint('hello')\n```"
 
     def test_code_block_without_language(self):
@@ -178,7 +178,7 @@ class TestCodeBlocks:
             "type": "codeBlock",
             "content": [{"type": "text", "text": "some code"}],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "```\nsome code\n```"
 
 
@@ -193,7 +193,7 @@ class TestBlockElements:
                 {"type": "paragraph", "content": [{"type": "text", "text": "Quote text"}]}
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "> Quote text"
 
     def test_panel(self):
@@ -204,7 +204,7 @@ class TestBlockElements:
                 {"type": "paragraph", "content": [{"type": "text", "text": "Panel content"}]}
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "> Panel content"
 
 
@@ -223,7 +223,7 @@ class TestDocument:
                 },
             ],
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert "First paragraph" in result
         assert "Second paragraph" in result
 
@@ -237,5 +237,5 @@ class TestStatus:
             "type": "status",
             "attrs": {"text": "DONE", "color": "green"},
         }
-        result = adf2md(adf_data)
+        result = Document(adf_data).to_markdown()
         assert result == "**[DONE]**"
